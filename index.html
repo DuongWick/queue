@@ -37,6 +37,11 @@ input,textarea{width:100%;font:inherit;padding:10px;border-radius:8px;border:1px
 .bank img{display:block;max-width:240px;width:100%;margin:8px auto;border-radius:8px;background:#fff}
 .err{color:var(--ac);font-size:14px}
 .hide{display:none}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--bd)}
+th{color:var(--mu);font-weight:normal;font-size:13px}
+tr:last-child td{border-bottom:0}
+tr.mine td{background:rgba(184,134,47,.15);font-weight:bold}
 footer{margin-top:40px;text-align:center}
 </style>
 </head>
@@ -62,6 +67,7 @@ footer{margin-top:40px;text-align:center}
 </section>
 
 <section id="mine" class="hide"></section>
+<section id="custQueue" class="hide"></section>
 
 <div id="ownerView" class="hide">
   <h2>Hàng đợi hiện tại <span id="count" class="note"></span></h2>
@@ -94,6 +100,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 firebase.initializeApp(FIREBASE_CONFIG);
 const auth = firebase.auth(), db = firebase.firestore();
+const fmt = ts => ts ? new Date(ts).toLocaleString("vi-VN") : "";
 let uid = null, isOwner = false, mode = null, queueDocs = {}, ticketDocs = {}, unsubTickets = null;
 
 function render() {
@@ -114,17 +121,23 @@ function render() {
   const m = list.find(t => t.uid === uid), box = $("#mine");
   if (m && !isOwner) {
     const pos = q.findIndex(t => t.id === m.id) + 1;
-    let h = `<div class="card me"><b>Vé của bạn</b><br>`;
-    if (pos) h += `Vị trí trong hàng đợi: <span class="pos">#${pos}</span>`;
+    let h = `<div class="card me"><b>Vé của bạn</b><div style="margin:6px 0">${m.mode === "donate" ? '<span class="tag ok">Quẻ trả phí</span>' : '<span class="tag free">Quẻ miễn phí</span>'}</div>Đặt lịch lúc: <b>${fmt(m.createdAt)}</b><br>`;
+    if (m.paidAt) h += `Thanh toán được xác nhận lúc: <b>${fmt(m.paidAt)}</b><br>`;
+    if (pos) h += `Số thứ tự: <span class="pos">#${pos}</span>`;
     else {
       const memo = "BOOK " + m.id;
       const qr = `https://img.vietqr.io/image/${BANK.code}-${BANK.number}-compact2.png?addInfo=${encodeURIComponent(memo)}&accountName=${encodeURIComponent(BANK.holder)}`;
       h += `Đang chờ xác nhận chuyển khoản.<div class="bank"><img src="${qr}" alt="QR chuyển khoản">Ngân hàng: ${esc(BANK.name)}<br>STK: <b>${esc(BANK.number)}</b><br>Chủ TK: ${esc(BANK.holder)}<br>Số tiền: ${esc(BANK.amount)}<br>Nội dung CK: <b>${esc(memo)}</b></div><span class="note">Sau khi chuyển khoản, chủ trang sẽ xác nhận và bạn sẽ được xếp lên đầu hàng.</span>`;
     }
+    if (m.mode === "free") h += `<div style="margin-top:12px"><button id="upgrade">⬆ Chuyển lên quẻ trả phí</button></div>`;
     box.innerHTML = h + `</div>`; box.classList.remove("hide");
+    const cq = $("#custQueue");
+    cq.innerHTML = `<h2>Hàng đợi hiện tại <span class="note">(${q.length} khách)</span></h2><div class="card" style="padding:0;overflow-x:auto"><table><tr><th>STT</th><th>Tên</th><th>Loại quẻ</th></tr>` +
+      (q.length ? q.map((t, i) => `<tr class="${t.id === m.id ? "mine" : ""}"><td>#${i + 1}</td><td>${esc(t.name)}${t.id === m.id ? " (bạn)" : ""}</td><td>${t.mode === "donate" ? "Trả phí" : "Miễn phí"}</td></tr>`).join("") : '<tr><td colspan="3" class="note">Chưa có ai trong hàng đợi.</td></tr>') + `</table></div>`;
+    cq.classList.remove("hide");
     $("#choose").classList.add("hide"); $("#form").classList.add("hide");
   } else {
-    box.classList.add("hide");
+    box.classList.add("hide"); $("#custQueue").classList.add("hide");
     if (!isOwner && $("#form").classList.contains("hide")) $("#choose").classList.remove("hide");
   }
   if (isOwner) { $("#choose").classList.add("hide"); $("#form").classList.add("hide"); }
@@ -159,6 +172,13 @@ document.addEventListener("click", async e => {
     else if (b.dataset.pay) await db.collection("queue").doc(b.dataset.pay).update({ paidAt: Date.now() });
     else if (b.dataset.done) await db.collection("queue").doc(b.dataset.done).update({ done: true });
     else if (b.dataset.del) { const id = b.dataset.del; await db.collection("queue").doc(id).delete(); await db.collection("tickets").doc(id).delete(); }
+    else if (b.id === "upgrade") {
+      const mine = Object.entries(queueDocs).find(([id, t]) => t.uid === uid && !t.done);
+      if (mine && confirm("Chuyển sang quẻ trả phí? Bạn sẽ cần chuyển khoản để được xếp ưu tiên.")) {
+        try { await db.collection("queue").doc(mine[0]).update({ mode: "donate" }); }
+        catch (er) { alert("Không chuyển được: " + (er.message || er.code)); }
+      }
+    }
     else if (b.id === "login") await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
     else if (b.id === "logout") { await auth.signOut(); }
   } catch (err) { $("#err").textContent = "Lỗi: " + (err.message || err.code); console.error(err); }
