@@ -175,8 +175,15 @@ document.addEventListener("click", async e => {
     else if (b.id === "upgrade") {
       const mine = Object.entries(queueDocs).find(([id, t]) => t.uid === uid && !t.done);
       if (mine && confirm("Chuyển sang quẻ trả phí? Bạn sẽ cần chuyển khoản để được xếp ưu tiên.")) {
-        try { await db.collection("queue").doc(mine[0]).update({ mode: "donate" }); }
-        catch (er) { alert("Không chuyển được: " + (er.message || er.code)); }
+        b.disabled = true; b.textContent = "Đang xử lý…";
+        try {
+          // Dùng transaction: giao diện chỉ đổi sau khi máy chủ xác nhận thành công
+          const ref = db.collection("queue").doc(mine[0]);
+          await db.runTransaction(async tx => { tx.update(ref, { mode: "donate" }); });
+        } catch (er) {
+          b.disabled = false; b.textContent = "⬆ Chuyển lên quẻ trả phí";
+          alert("Không chuyển được: " + (er.message || er.code) + "\n(Nếu lỗi permissions: chủ trang cần Publish lại firestore.rules mới nhất.)");
+        }
       }
     }
     else if (b.id === "login") await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
