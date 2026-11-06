@@ -4,14 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Đặt lịch xem bói</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif:wght@400;700&subset=vietnamese&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif:wght@400;700&amp;subset=vietnamese&amp;display=swap" rel="stylesheet">
 <style>
 :root{--bg:#faf6ef;--card:#fff;--tx:#2b2118;--mu:#7a6a5a;--ac:#8c2f39;--ac2:#b8862f;--bd:#e6dccb;--ok:#2f7a4d}
 @media (prefers-color-scheme:dark){:root{--bg:#1c1613;--card:#2a211c;--tx:#f3eadf;--mu:#b5a592;--ac:#e0707a;--ac2:#d9a94e;--bd:#44372e;--ok:#5fc08a}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.6 "Noto Serif","Times New Roman",Tahoma,serif;button,input,textarea{font-family:inherit}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.6 "Noto Serif","Times New Roman",Tahoma,serif}
+button,input,textarea{font-family:inherit}
 main{max-width:720px;margin:0 auto;padding:20px 16px 60px}
 h1{font-size:26px;margin:8px 0 4px;color:var(--ac)}
 h2{font-size:18px;margin:24px 0 8px}
@@ -62,9 +63,11 @@ footer{margin-top:40px;text-align:center}
 
 <section id="mine" class="hide"></section>
 
-<h2>Hàng đợi hiện tại <span id="count" class="note"></span></h2>
-<div id="queue"></div>
-<div id="pendingWrap" class="hide"><h2>Chờ chuyển khoản</h2><div id="pending"></div></div>
+<div id="ownerView" class="hide">
+  <h2>Hàng đợi hiện tại <span id="count" class="note"></span></h2>
+  <div id="queue"></div>
+  <div id="pendingWrap" class="hide"><h2>Chờ chuyển khoản</h2><div id="pending"></div></div>
+</div>
 
 <footer>
   <button class="ghost sm" id="login">Login (only for administrator !!! )</button>
@@ -99,11 +102,15 @@ function render() {
   const free = list.filter(t => t.mode === "free").sort((a, b) => a.createdAt - b.createdAt);
   const pending = list.filter(t => t.mode === "donate" && !t.paidAt).sort((a, b) => a.createdAt - b.createdAt);
   const q = [...donors, ...free];
+
+  // Danh sách đầy đủ + "Chờ chuyển khoản": chỉ chủ trang thấy
+  $("#ownerView").classList.toggle("hide", !isOwner);
   $("#count").textContent = q.length ? `(${q.length} khách)` : "";
   $("#queue").innerHTML = q.length ? q.map((t, i) => item(t, i + 1)).join("") : '<div class="card note">Hiện chưa có ai trong hàng đợi.</div>';
   $("#pendingWrap").classList.toggle("hide", !pending.length);
   $("#pending").innerHTML = pending.map(t => item(t, null)).join("");
 
+  // Khách: chỉ thấy vé của chính mình
   const m = list.find(t => t.uid === uid), box = $("#mine");
   if (m && !isOwner) {
     const pos = q.findIndex(t => t.id === m.id) + 1;
