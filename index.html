@@ -49,13 +49,13 @@ footer{margin-top:40px;text-align:center}
 <body>
 <main id="app">
 <h1>🔮 Đặt lịch xem bói</h1>
-<p class="sub"><i><u>Không nhận xem cho người dưới 16 tuổi, người theo Thiên chúa giáo.</u></i></p>
+<p class="sub"><i>Không nhận xem cho người dưới 16 tuổi, người theo Thiên chúa giáo.</i></p>
 <div id="status" class="note">Đang kết nối…</div>
 
 <section id="choose" class="hide">
   <div class="opts">
-    <button class="opt" data-mode="donate"><b>💛 Xem trả phí</b>Dành cho người chơi hệ lắm polyme, sẽ được ưu tiên xem trước !!!</button>
-    <button class="opt" data-mode="free"><b>🌿 Xem miễn phí</b>Dành cho người chơi hệ kiên nhẫn, xếp sau khách hàng đã trả phí </button>
+    <button class="opt" data-mode="donate"><b>💛 Xem trả phí </b>Dành cho người chơi hệ polyme, được ưu tiên xem trước.</button>
+    <button class="opt" data-mode="free"><b>🌿 Xem miễn phí</b>Dành cho người chơi hệ rảnh, xem sau các bạn đã trả phí.</button>
   </div>
 </section>
 
@@ -107,8 +107,7 @@ firebase.initializeApp(FIREBASE_CONFIG);
 const auth = firebase.auth(), db = firebase.firestore();
 const p2 = n => String(n).padStart(2, "0");
 const fmt = ts => { if (!ts) return ""; const d = new Date(ts); return `lúc ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}, ngày ${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`; };
-const toLocalInput = ts => new Date(ts - new Date(ts).getTimezoneOffset() * 60000).toISOString().slice(0, 19);
-const tsDraft = {};
+
 let uid = null, isOwner = false, mode = null, queueDocs = {}, ticketDocs = {}, unsubTickets = null;
 
 function render() {
@@ -156,10 +155,7 @@ function item(t, pos) {
   let body = "";
   if (isOwner) {
     let acts = "";
-    if (t.mode === "donate" && !t.paidAt) {
-      if (!(t.id in tsDraft)) tsDraft[t.id] = toLocalInput(t.transferAt || Date.now());
-      acts += `<label class="note">Giờ CK thực tế: <input type="datetime-local" step="1" data-ts="${t.id}" value="${tsDraft[t.id]}" style="width:auto;margin:0"></label><button class="sm" data-pay="${t.id}">Xác nhận đã CK</button> `;
-    }
+    if (t.mode === "donate" && !t.paidAt) acts += `<button class="sm" data-pay="${t.id}">Xác nhận đã CK</button> `;
     acts += `<button class="sm ghost" data-done="${t.id}">Đã xem xong</button> <button class="sm ghost" data-del="${t.id}">Xóa</button>`;
     const tk = ticketDocs[t.id] || {};
     const payInfo = t.paidAt ? `Chuyển khoản: <b>${fmt(t.paidAt)}</b>` : (t.transferAt ? `Khách báo đã CK: <b>${fmt(t.transferAt)}</b>` : (t.mode === "donate" ? "Khách chưa báo chuyển khoản" : ""));
@@ -170,7 +166,6 @@ function item(t, pos) {
   return `<div class="card q ${t.uid === uid ? "me" : ""}">${pos ? `<div class="pos">${pos}</div>` : ""}<div style="flex:1"><div class="row"><b>${esc(t.name)}</b>${tag}</div>${body}</div></div>`;
 }
 
-document.addEventListener("input", e => { if (e.target.dataset && e.target.dataset.ts) tsDraft[e.target.dataset.ts] = e.target.value; });
 document.addEventListener("click", async e => {
   const b = e.target.closest("button"); if (!b) return;
   try {
@@ -190,10 +185,9 @@ document.addEventListener("click", async e => {
       $("#form").classList.add("hide"); ["#ask", "#year", "#religion"].forEach(i => $(i).value = "");
     }
     else if (b.dataset.pay) {
-      const id = b.dataset.pay, when = new Date(tsDraft[id]).getTime();
-      if (!when) { alert("Giờ chuyển khoản không hợp lệ."); return; }
-      await db.collection("queue").doc(id).update({ paidAt: when, confirmedAt: Date.now() });
-      delete tsDraft[id];
+      // Giờ xếp hàng = giờ khách bấm "Tôi đã chuyển khoản"; nếu khách chưa bấm thì lấy giờ bạn xác nhận
+      const id = b.dataset.pay, t = queueDocs[id] || {};
+      await db.collection("queue").doc(id).update({ paidAt: t.transferAt || Date.now(), confirmedAt: Date.now() });
     }
     else if (b.id === "claim") {
       const mine = Object.entries(queueDocs).find(([id, t]) => t.uid === uid && !t.done);
