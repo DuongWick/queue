@@ -54,8 +54,8 @@ footer{margin-top:40px;text-align:center}
 
 <section id="choose" class="hide">
   <div class="opts">
-    <button class="opt" data-mode="donate"><b>💛 Xem trả phí </b>Dành cho người chơi hệ polyme, được ưu tiên xem trước.</button>
-    <button class="opt" data-mode="free"><b>🌿 Xem miễn phí</b>Dành cho người chơi hệ rảnh, xem sau các bạn đã trả phí.</button>
+    <button class="opt" data-mode="donate"><b>💛 Donate – đặt lịch ưu tiên</b>Chuyển khoản xong là được đẩy lên đầu hàng đợi.</button>
+    <button class="opt" data-mode="free"><b>🌿 Xem miễn phí</b>Xếp sau tất cả khách donate, theo thứ tự gửi câu hỏi.</button>
   </div>
 </section>
 
@@ -129,12 +129,12 @@ function render() {
   if (m && !isOwner) {
     const pos = q.findIndex(t => t.id === m.id) + 1;
     let h = `<div class="card me"><b>Vé của bạn</b><div style="margin:6px 0">${m.mode === "donate" ? '<span class="tag ok">Quẻ trả phí</span>' : '<span class="tag free">Quẻ miễn phí</span>'}</div>Đặt lịch: <b>${fmt(m.createdAt)}</b><br>`;
-    if (m.paidAt) h += `Chuyển khoản: <b>${fmt(m.paidAt)}</b><br>`;
+    if (m.paidAt) h += `Được xác nhận chuyển khoản: <b>${fmt(m.paidAt)}</b><br>`;
     if (pos) h += `Số thứ tự: <span class="pos">#${pos}</span>`;
     else {
       const memo = "BOOK " + m.id;
       const qr = `https://img.vietqr.io/image/${BANK.code}-${BANK.number}-compact2.png?addInfo=${encodeURIComponent(memo)}&accountName=${encodeURIComponent(BANK.holder)}`;
-      h += `Đang chờ xác nhận chuyển khoản.<div class="bank"><img src="${qr}" alt="QR chuyển khoản">Ngân hàng: ${esc(BANK.name)}<br>STK: <b>${esc(BANK.number)}</b><br>Chủ TK: ${esc(BANK.holder)}<br>Số tiền: ${esc(BANK.amount)}<br>Nội dung CK: <b>${esc(memo)}</b></div>${m.transferAt ? `<div>Bạn đã báo chuyển khoản <b>${fmt(m.transferAt)}</b>. Vui lòng chờ chủ trang xác nhận.</div>` : `<button id="claim">✅ Tôi đã chuyển khoản</button>`}<div class="note" style="margin-top:8px">Sau khi chủ trang xác nhận, bạn sẽ được xếp vào hàng đợi theo thời điểm chuyển khoản.</div>`;
+      h += `Đang chờ xác nhận chuyển khoản.<div class="bank"><img src="${qr}" alt="QR chuyển khoản">Ngân hàng: ${esc(BANK.name)}<br>STK: <b>${esc(BANK.number)}</b><br>Chủ TK: ${esc(BANK.holder)}<br>Số tiền: ${esc(BANK.amount)}<br>Nội dung CK: <b>${esc(memo)}</b></div>${m.transferAt ? `<div>Bạn đã báo chuyển khoản <b>${fmt(m.transferAt)}</b>. Vui lòng chờ chủ trang xác nhận.</div>` : `<button id="claim">✅ Tôi đã chuyển khoản</button>`}<div class="note" style="margin-top:8px">Sau khi chủ trang xác nhận, bạn sẽ được xếp vào hàng đợi theo thứ tự được xác nhận.</div>`;
     }
     if (m.mode === "free") h += `<div style="margin-top:12px"><button id="upgrade">⬆ Chuyển lên quẻ trả phí</button></div>`;
     box.innerHTML = h + `</div>`; box.classList.remove("hide");
@@ -158,7 +158,7 @@ function item(t, pos) {
     if (t.mode === "donate" && !t.paidAt) acts += `<button class="sm" data-pay="${t.id}">Xác nhận đã CK</button> `;
     acts += `<button class="sm ghost" data-done="${t.id}">Đã xem xong</button> <button class="sm ghost" data-del="${t.id}">Xóa</button>`;
     const tk = ticketDocs[t.id] || {};
-    const payInfo = t.paidAt ? `Chuyển khoản: <b>${fmt(t.paidAt)}</b>` : (t.transferAt ? `Khách báo đã CK: <b>${fmt(t.transferAt)}</b>` : (t.mode === "donate" ? "Khách chưa báo chuyển khoản" : ""));
+    const payInfo = t.paidAt ? `Đã xác nhận CK: <b>${fmt(t.paidAt)}</b>` : (t.transferAt ? `Khách báo đã CK: <b>${fmt(t.transferAt)}</b>` : (t.mode === "donate" ? "Khách chưa báo chuyển khoản" : ""));
     body = `<div class="note" style="margin:4px 0">Đặt lịch: ${fmt(t.createdAt)}${payInfo ? "<br>" + payInfo : ""}</div>` +
       `<div>🎂 Năm sinh: <b>${esc(tk.birthYear)}</b> · 🙏 Tôn giáo: <b>${esc(tk.religion)}</b></div>` +
       `<div style="margin:4px 0">❓ ${esc(tk.ask)}</div><small class="note">Mã: ${esc(t.id)}</small><div class="row" style="margin-top:6px">${acts}</div>`;
@@ -185,9 +185,9 @@ document.addEventListener("click", async e => {
       $("#form").classList.add("hide"); ["#ask", "#year", "#religion"].forEach(i => $(i).value = "");
     }
     else if (b.dataset.pay) {
-      // Giờ xếp hàng = giờ khách bấm "Tôi đã chuyển khoản"; nếu khách chưa bấm thì lấy giờ bạn xác nhận
-      const id = b.dataset.pay, t = queueDocs[id] || {};
-      await db.collection("queue").doc(id).update({ paidAt: t.transferAt || Date.now(), confirmedAt: Date.now() });
+      // Thứ tự hàng đợi = thứ tự chủ trang bấm xác nhận (ai được xác nhận trước thì xếp trước)
+      const now = Date.now();
+      await db.collection("queue").doc(b.dataset.pay).update({ paidAt: now, confirmedAt: now });
     }
     else if (b.id === "claim") {
       const mine = Object.entries(queueDocs).find(([id, t]) => t.uid === uid && !t.done);
