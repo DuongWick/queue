@@ -53,8 +53,8 @@ footer{margin-top:40px;text-align:center}
 
 <section id="choose" class="hide">
   <div class="opts">
-    <button class="opt" data-mode="donate"><b>💛 Xem trả phí </b>Dành cho người chơi hệ nhiều polyme, được ưu tiên xếp đầu.</button>
-    <button class="opt" data-mode="free"><b>🌿 Xem miễn phí</b>Xếp sau các bạn đã trả phí, dành cho người chơi hệ kiên nhẫn. </button>
+    <button class="opt" data-mode="donate"><b>💛 Donate – đặt lịch ưu tiên</b>Chuyển khoản xong là được đẩy lên đầu hàng đợi.</button>
+    <button class="opt" data-mode="free"><b>🌿 Xem miễn phí</b>Xếp sau tất cả khách donate, theo thứ tự gửi câu hỏi.</button>
   </div>
 </section>
 
@@ -191,12 +191,19 @@ document.addEventListener("click", async e => {
   } catch (err) { $("#err").textContent = "Lỗi: " + (err.message || err.code); console.error(err); }
 });
 
+// Nút đăng nhập chỉ hiện khi mở link có đuôi #admin (khách bình thường không thấy)
+function updateAdminButtons() {
+  const wantAdmin = location.hash === "#admin";
+  $("#login").classList.toggle("hide", isOwner || !wantAdmin);
+  $("#logout").classList.toggle("hide", !isOwner);
+}
+window.addEventListener("hashchange", updateAdminButtons);
+
 auth.onAuthStateChanged(async u => {
   if (!u) { await auth.signInAnonymously(); return; }
   uid = u.uid;
   isOwner = !!u.email && u.email === OWNER_EMAIL;
-  $("#login").classList.toggle("hide", isOwner);
-  $("#logout").classList.toggle("hide", !isOwner);
+  updateAdminButtons();
   $("#status").classList.add("hide");
   if (unsubTickets) { unsubTickets(); unsubTickets = null; }
   ticketDocs = {};
