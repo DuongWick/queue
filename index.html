@@ -42,6 +42,7 @@ th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--bd)}
 th{color:var(--mu);font-weight:normal;font-size:13px}
 tr:last-child td{border-bottom:0}
 tr.mine td{background:rgba(184,134,47,.15);font-weight:bold}
+.warn{font-style:italic;text-align:right;font-size:13px;color:var(--mu);margin:0 0 12px}
 footer{margin-top:40px;text-align:center}
 </style>
 </head>
@@ -60,8 +61,12 @@ footer{margin-top:40px;text-align:center}
 
 <section id="form" class="hide card">
   <div class="row"><b id="formTitle"></b><button class="ghost sm" id="back">← Quay lại</button></div>
-  <label>Tên / biệt danh<input id="name" maxlength="60"></label>
-  <label>Câu hỏi / điều bạn muốn xem<textarea id="ask" rows="3" maxlength="500"></textarea></label>
+  <label>Tên (hoặc biệt danh)<input id="name" maxlength="60"></label>
+  <label>Năm sinh dương lịch<input id="year" type="number" inputmode="numeric" min="1900" max="2100" placeholder="VD: 1995"></label>
+  <label>Tôn giáo hiện tại đang theo<input id="religion" list="religions" maxlength="40" placeholder="Phật giáo, Thiên chúa giáo, Hồi giáo,...">
+    <datalist id="religions"><option value="Phật giáo"><option value="Thiên chúa giáo"><option value="Tin lành"><option value="Hồi giáo"><option value="Ấn Độ giáo"><option value="Đạo Cao Đài"><option value="Phật giáo Hòa Hảo"><option value="Thờ cúng tổ tiên"><option value="Không theo tôn giáo"></datalist></label>
+  <label>Câu hỏi<textarea id="ask" rows="3" maxlength="500"></textarea></label>
+  <p class="warn">Mình không nhận xem cho người dưới 16 tuổi, theo Thiên chúa giáo. Tuyệt đối không được làm giả thông tin cá nhân!</p>
   <div id="err" class="err"></div>
   <button id="submit">Gửi vào hàng đợi</button>
 </section>
@@ -100,7 +105,10 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 firebase.initializeApp(FIREBASE_CONFIG);
 const auth = firebase.auth(), db = firebase.firestore();
-const fmt = ts => ts ? new Date(ts).toLocaleString("vi-VN") : "";
+const p2 = n => String(n).padStart(2, "0");
+const fmt = ts => { if (!ts) return ""; const d = new Date(ts); return `lúc ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}, ngày ${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`; };
+const toLocalInput = ts => new Date(ts - new Date(ts).getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+const tsDraft = {};
 let uid = null, isOwner = false, mode = null, queueDocs = {}, ticketDocs = {}, unsubTickets = null;
 
 function render() {
@@ -121,13 +129,13 @@ function render() {
   const m = list.find(t => t.uid === uid), box = $("#mine");
   if (m && !isOwner) {
     const pos = q.findIndex(t => t.id === m.id) + 1;
-    let h = `<div class="card me"><b>Vé của bạn</b><div style="margin:6px 0">${m.mode === "donate" ? '<span class="tag ok">Quẻ trả phí</span>' : '<span class="tag free">Quẻ miễn phí</span>'}</div>Đặt lịch lúc: <b>${fmt(m.createdAt)}</b><br>`;
-    if (m.paidAt) h += `Thanh toán được xác nhận lúc: <b>${fmt(m.paidAt)}</b><br>`;
+    let h = `<div class="card me"><b>Vé của bạn</b><div style="margin:6px 0">${m.mode === "donate" ? '<span class="tag ok">Quẻ trả phí</span>' : '<span class="tag free">Quẻ miễn phí</span>'}</div>Đặt lịch: <b>${fmt(m.createdAt)}</b><br>`;
+    if (m.paidAt) h += `Chuyển khoản: <b>${fmt(m.paidAt)}</b><br>`;
     if (pos) h += `Số thứ tự: <span class="pos">#${pos}</span>`;
     else {
       const memo = "BOOK " + m.id;
       const qr = `https://img.vietqr.io/image/${BANK.code}-${BANK.number}-compact2.png?addInfo=${encodeURIComponent(memo)}&accountName=${encodeURIComponent(BANK.holder)}`;
-      h += `Đang chờ xác nhận chuyển khoản.<div class="bank"><img src="${qr}" alt="QR chuyển khoản">Ngân hàng: ${esc(BANK.name)}<br>STK: <b>${esc(BANK.number)}</b><br>Chủ TK: ${esc(BANK.holder)}<br>Số tiền: ${esc(BANK.amount)}<br>Nội dung CK: <b>${esc(memo)}</b></div><span class="note">Sau khi chuyển khoản, chủ trang sẽ xác nhận và bạn sẽ được xếp lên đầu hàng.</span>`;
+      h += `Đang chờ xác nhận chuyển khoản.<div class="bank"><img src="${qr}" alt="QR chuyển khoản">Ngân hàng: ${esc(BANK.name)}<br>STK: <b>${esc(BANK.number)}</b><br>Chủ TK: ${esc(BANK.holder)}<br>Số tiền: ${esc(BANK.amount)}<br>Nội dung CK: <b>${esc(memo)}</b></div>${m.transferAt ? `<div>Bạn đã báo chuyển khoản <b>${fmt(m.transferAt)}</b>. Vui lòng chờ chủ trang xác nhận.</div>` : `<button id="claim">✅ Tôi đã chuyển khoản</button>`}<div class="note" style="margin-top:8px">Sau khi chủ trang xác nhận, bạn sẽ được xếp vào hàng đợi theo thời điểm chuyển khoản.</div>`;
     }
     if (m.mode === "free") h += `<div style="margin-top:12px"><button id="upgrade">⬆ Chuyển lên quẻ trả phí</button></div>`;
     box.innerHTML = h + `</div>`; box.classList.remove("hide");
@@ -148,28 +156,52 @@ function item(t, pos) {
   let body = "";
   if (isOwner) {
     let acts = "";
-    if (t.mode === "donate" && !t.paidAt) acts += `<button class="sm" data-pay="${t.id}">Xác nhận đã CK</button> `;
+    if (t.mode === "donate" && !t.paidAt) {
+      if (!(t.id in tsDraft)) tsDraft[t.id] = toLocalInput(t.transferAt || Date.now());
+      acts += `<label class="note">Giờ CK thực tế: <input type="datetime-local" step="1" data-ts="${t.id}" value="${tsDraft[t.id]}" style="width:auto;margin:0"></label><button class="sm" data-pay="${t.id}">Xác nhận đã CK</button> `;
+    }
     acts += `<button class="sm ghost" data-done="${t.id}">Đã xem xong</button> <button class="sm ghost" data-del="${t.id}">Xóa</button>`;
-    body = `<div>${esc((ticketDocs[t.id] || {}).ask)}</div><small class="note">Mã: ${esc(t.id)}</small><div class="row" style="margin-top:6px">${acts}</div>`;
+    const tk = ticketDocs[t.id] || {};
+    const payInfo = t.paidAt ? `Chuyển khoản: <b>${fmt(t.paidAt)}</b>` : (t.transferAt ? `Khách báo đã CK: <b>${fmt(t.transferAt)}</b>` : (t.mode === "donate" ? "Khách chưa báo chuyển khoản" : ""));
+    body = `<div class="note" style="margin:4px 0">Đặt lịch: ${fmt(t.createdAt)}${payInfo ? "<br>" + payInfo : ""}</div>` +
+      `<div>🎂 Năm sinh: <b>${esc(tk.birthYear)}</b> · 🙏 Tôn giáo: <b>${esc(tk.religion)}</b></div>` +
+      `<div style="margin:4px 0">❓ ${esc(tk.ask)}</div><small class="note">Mã: ${esc(t.id)}</small><div class="row" style="margin-top:6px">${acts}</div>`;
   }
   return `<div class="card q ${t.uid === uid ? "me" : ""}">${pos ? `<div class="pos">${pos}</div>` : ""}<div style="flex:1"><div class="row"><b>${esc(t.name)}</b>${tag}</div>${body}</div></div>`;
 }
 
+document.addEventListener("input", e => { if (e.target.dataset && e.target.dataset.ts) tsDraft[e.target.dataset.ts] = e.target.value; });
 document.addEventListener("click", async e => {
   const b = e.target.closest("button"); if (!b) return;
   try {
     if (b.dataset.mode) { mode = b.dataset.mode; $("#formTitle").textContent = mode === "donate" ? "💛 Đặt lịch donate (ưu tiên)" : "🌿 Xem miễn phí"; $("#choose").classList.add("hide"); $("#form").classList.remove("hide"); }
     else if (b.id === "back") { $("#form").classList.add("hide"); $("#choose").classList.remove("hide"); }
     else if (b.id === "submit") {
-      const name = $("#name").value.trim(), ask = $("#ask").value.trim();
-      if (!name || !ask) { $("#err").textContent = "Vui lòng nhập tên và câu hỏi."; return; }
+      const name = $("#name").value.trim(), ask = $("#ask").value.trim(), religion = $("#religion").value.trim();
+      const birthYear = parseInt($("#year").value, 10), thisYear = new Date().getFullYear();
+      if (!name || !religion || !ask || !birthYear) { $("#err").textContent = "Vui lòng điền đầy đủ tên, năm sinh, tôn giáo và câu hỏi."; return; }
+      if (birthYear < 1900 || birthYear > thisYear) { $("#err").textContent = "Năm sinh không hợp lệ."; return; }
+      if (thisYear - birthYear < 16) { $("#err").textContent = "Mình không nhận xem cho người dưới 16 tuổi."; return; }
       $("#err").textContent = "";
       const ref = db.collection("queue").doc();
       await ref.set({ uid, name, mode, createdAt: Date.now(), paidAt: null, done: false });
-      await db.collection("tickets").doc(ref.id).set({ uid, ask });
-      $("#form").classList.add("hide"); $("#ask").value = "";
+      await db.collection("tickets").doc(ref.id).set({ uid, ask, birthYear, religion });
+      $("#form").classList.add("hide"); ["#ask", "#year", "#religion"].forEach(i => $(i).value = "");
     }
-    else if (b.dataset.pay) await db.collection("queue").doc(b.dataset.pay).update({ paidAt: Date.now() });
+    else if (b.dataset.pay) {
+      const id = b.dataset.pay, when = new Date(tsDraft[id]).getTime();
+      if (!when) { alert("Giờ chuyển khoản không hợp lệ."); return; }
+      await db.collection("queue").doc(id).update({ paidAt: when, confirmedAt: Date.now() });
+      delete tsDraft[id];
+    }
+    else if (b.id === "claim") {
+      const mine = Object.entries(queueDocs).find(([id, t]) => t.uid === uid && !t.done);
+      if (mine) {
+        b.disabled = true;
+        try { await db.runTransaction(async tx => { tx.update(db.collection("queue").doc(mine[0]), { transferAt: Date.now() }); }); }
+        catch (er) { b.disabled = false; alert("Không ghi nhận được: " + (er.message || er.code)); }
+      }
+    }
     else if (b.dataset.done) await db.collection("queue").doc(b.dataset.done).update({ done: true });
     else if (b.dataset.del) { const id = b.dataset.del; await db.collection("queue").doc(id).delete(); await db.collection("tickets").doc(id).delete(); }
     else if (b.id === "upgrade") {
