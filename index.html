@@ -47,9 +47,9 @@ footer{margin-top:40px;text-align:center}
 </style>
 </head>
 <body>
-<main>
+<main id="app">
 <h1>🔮 Đặt lịch xem bói</h1>
-<p class="sub">Hàng đợi tự động: ai donate và chuyển khoản trước sẽ được xem trước.</p>
+<p class="sub"><i><u>Không nhận xem cho người dưới 16 tuổi, người theo Thiên chúa giáo.</u></i></p>
 <div id="status" class="note">Đang kết nối…</div>
 
 <section id="choose" class="hide">
@@ -66,7 +66,6 @@ footer{margin-top:40px;text-align:center}
   <label>Tôn giáo hiện tại đang theo<input id="religion" list="religions" maxlength="40" placeholder="Phật giáo, Thiên chúa giáo, Hồi giáo,...">
     <datalist id="religions"><option value="Phật giáo"><option value="Thiên chúa giáo"><option value="Tin lành"><option value="Hồi giáo"><option value="Ấn Độ giáo"><option value="Đạo Cao Đài"><option value="Phật giáo Hòa Hảo"><option value="Thờ cúng tổ tiên"><option value="Không theo tôn giáo"></datalist></label>
   <label>Câu hỏi<textarea id="ask" rows="3" maxlength="500"></textarea></label>
-  <p class="warn">Mình không nhận xem cho người dưới 16 tuổi, theo Thiên chúa giáo. Tuyệt đối không được làm giả thông tin cá nhân!</p>
   <div id="err" class="err"></div>
   <button id="submit">Gửi vào hàng đợi</button>
 </section>
@@ -85,6 +84,7 @@ footer{margin-top:40px;text-align:center}
   <button class="ghost sm hide" id="logout">Đăng xuất</button>
 </footer>
 </main>
+<div id="nf" class="hide" style="text-align:center;padding:20vh 16px;font-family:Arial,sans-serif"><h1 style="font-size:56px;margin:0">404</h1><p class="note">Not Found</p><button class="ghost sm hide" id="login2">Login</button></div>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -181,7 +181,8 @@ document.addEventListener("click", async e => {
       const birthYear = parseInt($("#year").value, 10), thisYear = new Date().getFullYear();
       if (!name || !religion || !ask || !birthYear) { $("#err").textContent = "Vui lòng điền đầy đủ tên, năm sinh, tôn giáo và câu hỏi."; return; }
       if (birthYear < 1900 || birthYear > thisYear) { $("#err").textContent = "Năm sinh không hợp lệ."; return; }
-      if (thisYear - birthYear < 16) { $("#err").textContent = "Mình không nhận xem cho người dưới 16 tuổi."; return; }
+      if (thisYear - birthYear < 16) { await blockMe("under16"); return; }
+      if (isChristian(religion)) { await blockMe("christian"); return; }
       $("#err").textContent = "";
       const ref = db.collection("queue").doc();
       await ref.set({ uid, name, mode, createdAt: Date.now(), paidAt: null, done: false });
@@ -218,7 +219,7 @@ document.addEventListener("click", async e => {
         }
       }
     }
-    else if (b.id === "login") await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
+    else if (b.id === "login" || b.id === "login2") await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
     else if (b.id === "logout") { await auth.signOut(); }
   } catch (err) { $("#err").textContent = "Lỗi: " + (err.message || err.code); console.error(err); }
 });
@@ -228,14 +229,41 @@ function updateAdminButtons() {
   const wantAdmin = location.hash === "#admin";
   $("#login").classList.toggle("hide", isOwner || !wantAdmin);
   $("#logout").classList.toggle("hide", !isOwner);
+  $("#login2").classList.toggle("hide", isOwner || !wantAdmin);
 }
 window.addEventListener("hashchange", updateAdminButtons);
+
+// ----- Chặn khách không được nhận (dưới 16 tuổi / theo Thiên chúa giáo): hiện trang 404 -----
+const isChristian = r => /thien chua|cong giao|ki-?\s?to|co doc|christian|catholic/.test(
+  r.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").toLowerCase());
+function showBlocked() {
+  $("#nf").classList.remove("hide"); $("#app").classList.add("hide"); document.title = "404 Not Found"; updateAdminButtons();
+}
+async function blockMe(reason) {
+  try { localStorage.setItem("nf", "1"); } catch (e) {}
+  try { await db.collection("blocked").doc(uid).set({ at: Date.now(), reason }); } catch (e) {}
+  showBlocked();
+}
+try { if (localStorage.getItem("nf") === "1") showBlocked(); } catch (e) {}
 
 auth.onAuthStateChanged(async u => {
   if (!u) { await auth.signInAnonymously(); return; }
   uid = u.uid;
   isOwner = !!u.email && u.email === OWNER_EMAIL;
   updateAdminButtons();
+  if (isOwner) {
+    try { localStorage.removeItem("nf"); } catch (e) {}
+    $("#nf").classList.add("hide"); $("#app").classList.remove("hide"); document.title = "Đặt lịch xem bói";
+  } else {
+    let blocked = false;
+    try { blocked = localStorage.getItem("nf") === "1"; } catch (e) {}
+    try {
+      const d = await db.collection("blocked").doc(uid).get();
+      if (d.exists) blocked = true;
+      else if (blocked) await db.collection("blocked").doc(uid).set({ at: Date.now(), reason: "returning" });
+    } catch (e) {}
+    if (blocked) { try { localStorage.setItem("nf", "1"); } catch (e) {} showBlocked(); }
+  }
   $("#status").classList.add("hide");
   if (unsubTickets) { unsubTickets(); unsubTickets = null; }
   ticketDocs = {};
