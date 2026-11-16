@@ -26,6 +26,7 @@ button.sm{padding:4px 10px;font-size:14px}
 button.opt{text-align:left;padding:16px;background:var(--card);color:var(--tx);border:2px solid var(--bd)}
 button.opt:hover{border-color:var(--ac2)}
 button.opt b{display:block;color:var(--ac);margin-bottom:4px}
+select{width:100%;font:inherit;padding:10px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--tx);margin:4px 0 10px}
 input,textarea{width:100%;font:inherit;padding:10px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--tx);margin:4px 0 10px}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .tag{font-size:12px;border-radius:99px;padding:2px 10px;border:1px solid var(--ac2);color:var(--ac2)}
@@ -52,7 +53,15 @@ footer{margin-top:40px;text-align:center}
 <p class="sub"><i>Không nhận xem cho người dưới 16 tuổi, người theo Thiên chúa giáo.</i></p>
 <div id="status" class="note">Đang kết nối…</div>
 
+<section id="chooseKind" class="hide">
+  <div class="opts">
+    <button class="opt" data-kind="live"><b>📺 Xem trực tiếp trên Live TikTok</b>Xếp hàng: khách donate trước, miễn phí sau.</button>
+    <button class="opt" data-kind="later"><b>📅 Đặt lịch xem sau</b>Quẻ trả phí, chọn khung giờ cố định trong tuần.</button>
+  </div>
+</section>
+
 <section id="choose" class="hide">
+  <div class="row" style="margin-bottom:10px"><b>📺 Live TikTok</b><button class="ghost sm" id="backKind">← Quay lại</button></div>
   <div class="opts">
     <button class="opt" data-mode="donate"><b>💛 Donate – đặt lịch ưu tiên</b>Chuyển khoản xong là được đẩy lên đầu hàng đợi.</button>
     <button class="opt" data-mode="free"><b>🌿 Xem miễn phí</b>Xếp sau tất cả khách donate, theo thứ tự gửi câu hỏi.</button>
@@ -61,6 +70,7 @@ footer{margin-top:40px;text-align:center}
 
 <section id="form" class="hide card">
   <div class="row"><b id="formTitle"></b><button class="ghost sm" id="back">← Quay lại</button></div>
+  <div id="slotBox" class="hide"><label>Chọn thời gian xem<select id="slot"></select></label></div>
   <label>Tên (hoặc biệt danh)<input id="name" maxlength="60"></label>
   <label>Năm sinh dương lịch<input id="year" type="number" inputmode="numeric" min="1900" max="2100" placeholder="VD: 1995"></label>
   <label>Tôn giáo hiện tại đang theo<input id="religion" list="religions" maxlength="40" placeholder="Phật giáo, Thiên chúa giáo, Hồi giáo,...">
@@ -74,8 +84,9 @@ footer{margin-top:40px;text-align:center}
 <section id="custQueue" class="hide"></section>
 
 <div id="ownerView" class="hide">
-  <h2>Hàng đợi hiện tại <span id="count" class="note"></span></h2>
+  <h2>📺 Hàng đợi Live TikTok <span id="count" class="note"></span></h2>
   <div id="queue"></div>
+  <div id="slotQueues"></div>
   <div id="pendingWrap" class="hide"><h2>Chờ chuyển khoản</h2><div id="pending"></div></div>
 </div>
 
@@ -108,69 +119,106 @@ const auth = firebase.auth(), db = firebase.firestore();
 const p2 = n => String(n).padStart(2, "0");
 const fmt = ts => { if (!ts) return ""; const d = new Date(ts); return `lúc ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}, ngày ${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`; };
 
+const SLOTS = { tue: "Tối thứ 3, từ 21:00", wed: "Tối thứ 4, từ 21:00", thu: "Tối thứ 5, từ 21:00", fri: "Tối thứ 6, từ 21:00", sat: "Tối thứ 7, từ 21:00", sun: "Tối Chủ nhật, lúc 19:00" };
+const slotOpts = (sel) => Object.entries(SLOTS).map(([k, v]) => `<option value="${k}"${k === sel ? " selected" : ""}>${v}</option>`).join("");
+let kind = "live", step = "kind", switching = false, switchVal = "tue";
+function showStep() { $("#chooseKind").classList.toggle("hide", step !== "kind"); $("#choose").classList.toggle("hide", step !== "live"); $("#form").classList.toggle("hide", step !== "form"); }
 let uid = null, isOwner = false, mode = null, queueDocs = {}, ticketDocs = {}, unsubTickets = null;
 
 function render() {
   const list = Object.entries(queueDocs).map(([id, t]) => ({ id, ...t })).filter(t => !t.done);
-  const donors = list.filter(t => t.mode === "donate" && t.paidAt).sort((a, b) => a.paidAt - b.paidAt);
-  const free = list.filter(t => t.mode === "free").sort((a, b) => a.createdAt - b.createdAt);
+  const isLater = t => t.kind === "later";
+  const live = list.filter(t => !isLater(t));
+  const donors = live.filter(t => t.mode === "donate" && t.paidAt).sort((a, b) => a.paidAt - b.paidAt);
+  const free = live.filter(t => t.mode === "free").sort((a, b) => a.createdAt - b.createdAt);
+  const q = [...donors, ...free];   // hàng Live: khách đã được xác nhận trả phí trước, rồi tới khách miễn phí
+  const slotQ = s => list.filter(t => isLater(t) && t.slot === s && t.paidAt).sort((a, b) => a.paidAt - b.paidAt);
   const pending = list.filter(t => t.mode === "donate" && !t.paidAt).sort((a, b) => a.createdAt - b.createdAt);
-  const q = [...donors, ...free];
 
-  // Danh sách đầy đủ + "Chờ chuyển khoản": chỉ chủ trang thấy
+  // Chủ trang: thấy tất cả
   $("#ownerView").classList.toggle("hide", !isOwner);
   $("#count").textContent = q.length ? `(${q.length} khách)` : "";
   $("#queue").innerHTML = q.length ? q.map((t, i) => item(t, i + 1)).join("") : '<div class="card note">Hiện chưa có ai trong hàng đợi.</div>';
+  $("#slotQueues").innerHTML = Object.keys(SLOTS).map(k => { const a = slotQ(k); return a.length ? `<h2>📅 ${SLOTS[k]} <span class="note">(${a.length} khách)</span></h2>` + a.map((t, i) => item(t, i + 1)).join("") : ""; }).join("");
   $("#pendingWrap").classList.toggle("hide", !pending.length);
   $("#pending").innerHTML = pending.map(t => item(t, null)).join("");
 
-  // Khách: chỉ thấy vé của chính mình
+  // Khách: chỉ thấy vé của mình + hàng đợi cùng loại
   const m = list.find(t => t.uid === uid), box = $("#mine");
   if (m && !isOwner) {
-    const pos = q.findIndex(t => t.id === m.id) + 1;
-    let h = `<div class="card me"><b>Vé của bạn</b><div style="margin:6px 0">${m.mode === "donate" ? '<span class="tag ok">Quẻ trả phí</span>' : '<span class="tag free">Quẻ miễn phí</span>'}</div>Đặt lịch: <b>${fmt(m.createdAt)}</b><br>`;
+    const mq = isLater(m) ? slotQ(m.slot) : q;
+    const pos = mq.findIndex(t => t.id === m.id) + 1;
+    const needPay = (m.mode === "donate" && !m.paidAt) || m.wantPaid;
+    const kindTag = isLater(m) ? `<span class="tag">📅 Xem sau</span> ` : `<span class="tag">📺 Live TikTok</span> `;
+    let h = `<div class="card me"><b>Vé của bạn</b><div style="margin:6px 0">${kindTag}${m.mode === "donate" ? '<span class="tag ok">Quẻ trả phí</span>' : '<span class="tag free">Quẻ miễn phí</span>'}</div>Đặt lịch: <b>${fmt(m.createdAt)}</b><br>`;
+    if (isLater(m)) h += `Khung giờ xem: <b>${esc(SLOTS[m.slot])}</b><br>`;
     if (m.paidAt) h += `Được xác nhận chuyển khoản: <b>${fmt(m.paidAt)}</b><br>`;
-    if (pos) h += `Số thứ tự: <span class="pos">#${pos}</span>`;
-    else {
-      const memo = "BOOK " + m.id;
+    if (pos) h += `Số thứ tự: <span class="pos">#${pos}</span>` + (m.wantPaid ? `<div class="note">Đây là số thứ tự hàng miễn phí. Số này sẽ bị xóa khi chủ trang xác nhận bạn đã chuyển khoản trả phí.</div>` : "");
+    if (needPay) {
+      const memo = "BOOK " + (m.code || m.id);
       const qr = `https://img.vietqr.io/image/${BANK.code}-${BANK.number}-compact2.png?addInfo=${encodeURIComponent(memo)}&accountName=${encodeURIComponent(BANK.holder)}`;
-      h += `Đang chờ xác nhận chuyển khoản.<div class="bank"><img src="${qr}" alt="QR chuyển khoản">Ngân hàng: ${esc(BANK.name)}<br>STK: <b>${esc(BANK.number)}</b><br>Chủ TK: ${esc(BANK.holder)}<br>Số tiền: ${esc(BANK.amount)}<br>Nội dung CK: <b>${esc(memo)}</b></div>${m.transferAt ? `<div>Bạn đã báo chuyển khoản <b>${fmt(m.transferAt)}</b>. Vui lòng chờ chủ trang xác nhận.</div>` : `<button id="claim">✅ Tôi đã chuyển khoản</button>`}<div class="note" style="margin-top:8px">Sau khi chủ trang xác nhận, bạn sẽ được xếp vào hàng đợi theo thứ tự được xác nhận.</div>`;
+      h += `<div style="margin-top:8px">Đang chờ xác nhận chuyển khoản.</div><div class="bank"><img src="${qr}" alt="QR chuyển khoản">Ngân hàng: ${esc(BANK.name)}<br>STK: <b>${esc(BANK.number)}</b><br>Chủ TK: ${esc(BANK.holder)}<br>Số tiền: ${esc(BANK.amount)}<br>Nội dung CK: <b>${esc(memo)}</b></div>${m.transferAt ? `<div>Bạn đã báo chuyển khoản <b>${fmt(m.transferAt)}</b>. Vui lòng chờ chủ trang xác nhận.</div>` : `<button id="claim">✅ Tôi đã chuyển khoản</button>`}<div class="note" style="margin-top:8px">Sau khi chủ trang xác nhận, bạn sẽ được xếp vào hàng đợi theo thứ tự được xác nhận.</div>`;
     }
-    if (m.mode === "free") h += `<div style="margin-top:12px"><button id="upgrade">⬆ Chuyển lên quẻ trả phí</button></div>`;
+    if (!isLater(m)) {
+      if (m.mode === "free" && !m.wantPaid) h += `<div style="margin-top:12px"><button id="upgrade">⬆ Chuyển lên quẻ trả phí</button></div>`;
+      if (!switching) h += `<div style="margin-top:12px"><button class="ghost" id="switch">🕘 Chuyển sang xem lúc khác</button></div>`;
+      else h += `<div class="bank" style="font-family:inherit"><b>Chọn khung giờ xem sau</b> (quẻ trả phí)<select id="switchSlot">${slotOpts(switchVal)}</select>${m.mode === "free" ? '<div class="note" style="margin-bottom:8px">Bạn đang xem miễn phí, chuyển sang xem sau sẽ cần chuyển khoản.</div>' : ""}<button id="switchOk">Xác nhận</button> <button class="ghost" id="switchCancel">Hủy</button></div>`;
+    }
     box.innerHTML = h + `</div>`; box.classList.remove("hide");
     const cq = $("#custQueue");
-    cq.innerHTML = `<h2>Hàng đợi hiện tại <span class="note">(${q.length} khách)</span></h2><div class="card" style="padding:0;overflow-x:auto"><table><tr><th>STT</th><th>Tên</th><th>Loại quẻ</th></tr>` +
-      (q.length ? q.map((t, i) => `<tr class="${t.id === m.id ? "mine" : ""}"><td>#${i + 1}</td><td>${esc(t.name)}${t.id === m.id ? " (bạn)" : ""}</td><td>${t.mode === "donate" ? "Trả phí" : "Miễn phí"}</td></tr>`).join("") : '<tr><td colspan="3" class="note">Chưa có ai trong hàng đợi.</td></tr>') + `</table></div>`;
+    cq.innerHTML = `<h2>${isLater(m) ? "Hàng đợi " + esc(SLOTS[m.slot]) : "Hàng đợi Live TikTok"} <span class="note">(${mq.length} khách)</span></h2><div class="card" style="padding:0;overflow-x:auto"><table><tr><th>STT</th><th>Tên</th><th>Loại quẻ</th></tr>` +
+      (mq.length ? mq.map((t, i) => `<tr class="${t.id === m.id ? "mine" : ""}"><td>#${i + 1}</td><td>${esc(t.name)}${t.id === m.id ? " (bạn)" : ""}</td><td>${t.mode === "donate" ? "Trả phí" : "Miễn phí"}</td></tr>`).join("") : '<tr><td colspan="3" class="note">Chưa có ai trong hàng đợi.</td></tr>') + `</table></div>`;
     cq.classList.remove("hide");
-    $("#choose").classList.add("hide"); $("#form").classList.add("hide");
+    ["#chooseKind", "#choose", "#form"].forEach(i => $(i).classList.add("hide"));
   } else {
     box.classList.add("hide"); $("#custQueue").classList.add("hide");
-    if (!isOwner && $("#form").classList.contains("hide")) $("#choose").classList.remove("hide");
+    if (!isOwner) showStep();
   }
-  if (isOwner) { $("#choose").classList.add("hide"); $("#form").classList.add("hide"); }
+  if (isOwner) ["#chooseKind", "#choose", "#form"].forEach(i => $(i).classList.add("hide"));
 }
 
 function item(t, pos) {
-  const tag = t.mode === "donate" ? (t.paidAt ? '<span class="tag ok">Donate ✓</span>' : '<span class="tag">Donate – chưa CK</span>') : '<span class="tag free">Miễn phí</span>';
+  const kindTag = t.kind === "later" ? `<span class="tag">📅 ${esc(SLOTS[t.slot])}</span>` : '<span class="tag">📺 Live</span>';
+  const tag = t.mode === "donate" ? (t.paidAt ? '<span class="tag ok">Trả phí ✓</span>' : '<span class="tag">Trả phí – chưa CK</span>') : (t.wantPaid ? '<span class="tag">Miễn phí → muốn lên trả phí, chờ CK</span>' : '<span class="tag free">Miễn phí</span>');
   let body = "";
   if (isOwner) {
     let acts = "";
-    if (t.mode === "donate" && !t.paidAt) acts += `<button class="sm" data-pay="${t.id}">Xác nhận đã CK</button> `;
+    if ((t.mode === "donate" && !t.paidAt) || t.wantPaid) acts += `<button class="sm" data-pay="${t.id}">Xác nhận đã CK</button> `;
     acts += `<button class="sm ghost" data-done="${t.id}">Đã xem xong</button> <button class="sm ghost" data-del="${t.id}">Xóa</button>`;
     const tk = ticketDocs[t.id] || {};
-    const payInfo = t.paidAt ? `Đã xác nhận CK: <b>${fmt(t.paidAt)}</b>` : (t.transferAt ? `Khách báo đã CK: <b>${fmt(t.transferAt)}</b>` : (t.mode === "donate" ? "Khách chưa báo chuyển khoản" : ""));
+    const needPay = (t.mode === "donate" && !t.paidAt) || t.wantPaid;
+    const payInfo = t.paidAt ? `Đã xác nhận CK: <b>${fmt(t.paidAt)}</b>` : (t.transferAt ? `Khách báo đã CK: <b>${fmt(t.transferAt)}</b>` : (needPay ? "Khách chưa báo chuyển khoản" : ""));
     body = `<div class="note" style="margin:4px 0">Đặt lịch: ${fmt(t.createdAt)}${payInfo ? "<br>" + payInfo : ""}</div>` +
       `<div>🎂 Năm sinh: <b>${esc(tk.birthYear)}</b> · 🙏 Tôn giáo: <b>${esc(tk.religion)}</b></div>` +
-      `<div style="margin:4px 0">❓ ${esc(tk.ask)}</div><small class="note">Mã: ${esc(t.id)}</small><div class="row" style="margin-top:6px">${acts}</div>`;
+      `<div style="margin:4px 0">❓ ${esc(tk.ask)}</div><small class="note">Mã CK: ${esc(t.code || t.id)}</small><div class="row" style="margin-top:6px">${acts}</div>`;
   }
-  return `<div class="card q ${t.uid === uid ? "me" : ""}">${pos ? `<div class="pos">${pos}</div>` : ""}<div style="flex:1"><div class="row"><b>${esc(t.name)}</b>${tag}</div>${body}</div></div>`;
+  return `<div class="card q ${t.uid === uid ? "me" : ""}">${pos ? `<div class="pos">${pos}</div>` : ""}<div style="flex:1"><div class="row"><b>${esc(t.name)}</b>${kindTag}${tag}</div>${body}</div></div>`;
 }
 
+document.addEventListener("change", e => { if (e.target.id === "switchSlot") switchVal = e.target.value; });
+$("#slot").innerHTML = '<option value="">-- Chọn thời gian --</option>' + slotOpts("");
 document.addEventListener("click", async e => {
   const b = e.target.closest("button"); if (!b) return;
   try {
-    if (b.dataset.mode) { mode = b.dataset.mode; $("#formTitle").textContent = mode === "donate" ? "💛 Đặt lịch donate (ưu tiên)" : "🌿 Xem miễn phí"; $("#choose").classList.add("hide"); $("#form").classList.remove("hide"); }
-    else if (b.id === "back") { $("#form").classList.add("hide"); $("#choose").classList.remove("hide"); }
+    if (b.dataset.kind) {
+      kind = b.dataset.kind;
+      if (kind === "later") { mode = "donate"; $("#formTitle").textContent = "📅 Đặt lịch xem sau (quẻ trả phí)"; $("#slotBox").classList.remove("hide"); step = "form"; }
+      else step = "live";
+      showStep();
+    }
+    else if (b.dataset.mode) { kind = "live"; mode = b.dataset.mode; $("#formTitle").textContent = mode === "donate" ? "📺 Live – donate (ưu tiên)" : "📺 Live – xem miễn phí"; $("#slotBox").classList.add("hide"); step = "form"; showStep(); }
+    else if (b.id === "back") { step = kind === "later" ? "kind" : "live"; showStep(); }
+    else if (b.id === "backKind") { step = "kind"; showStep(); }
+    else if (b.id === "switch") { switching = true; render(); }
+    else if (b.id === "switchCancel") { switching = false; render(); }
+    else if (b.id === "switchOk") {
+      const mine = Object.entries(queueDocs).find(([id, t]) => t.uid === uid && !t.done);
+      if (mine) {
+        b.disabled = true;
+        try { await db.runTransaction(async tx => { tx.update(db.collection("queue").doc(mine[0]), { kind: "later", slot: switchVal, mode: "donate", wantPaid: false }); }); switching = false; }
+        catch (er) { b.disabled = false; alert("Không chuyển được: " + (er.message || er.code) + "\n(Nếu lỗi permissions: chủ trang cần Publish lại firestore.rules mới nhất.)"); }
+      }
+    }
     else if (b.id === "submit") {
       const name = $("#name").value.trim(), ask = $("#ask").value.trim(), religion = $("#religion").value.trim();
       const birthYear = parseInt($("#year").value, 10), thisYear = new Date().getFullYear();
@@ -180,14 +228,21 @@ document.addEventListener("click", async e => {
       if (isChristian(religion)) { await blockMe("christian"); return; }
       $("#err").textContent = "";
       const ref = db.collection("queue").doc();
-      await ref.set({ uid, name, mode, createdAt: Date.now(), paidAt: null, done: false });
+      // Mã chuyển khoản ngắn gồm 4 chữ số, không trùng với mã đã có
+      const used = new Set(Object.values(queueDocs).map(t => t.code));
+      let code; do { code = String(1000 + Math.floor(Math.random() * 9000)); } while (used.has(code));
+      const slot = kind === "later" ? $("#slot").value : null;
+      if (kind === "later" && !SLOTS[slot]) { $("#err").textContent = "Vui lòng chọn thời gian xem."; return; }
+      await ref.set({ uid, name, mode, kind, slot, wantPaid: false, code, createdAt: Date.now(), paidAt: null, done: false });
       await db.collection("tickets").doc(ref.id).set({ uid, ask, birthYear, religion });
-      $("#form").classList.add("hide"); ["#ask", "#year", "#religion"].forEach(i => $(i).value = "");
+      step = "kind"; ["#ask", "#year", "#religion"].forEach(i => $(i).value = "");
     }
     else if (b.dataset.pay) {
       // Thứ tự hàng đợi = thứ tự chủ trang bấm xác nhận (ai được xác nhận trước thì xếp trước)
-      const now = Date.now();
-      await db.collection("queue").doc(b.dataset.pay).update({ paidAt: now, confirmedAt: now });
+      const now = Date.now(), t = queueDocs[b.dataset.pay] || {};
+      const upd = { paidAt: now, confirmedAt: now };
+      if (t.mode === "free") { upd.mode = "donate"; upd.wantPaid = false; }   // khách miễn phí lên trả phí: rời hàng miễn phí, số thứ tự miễn phí bị xóa
+      await db.collection("queue").doc(b.dataset.pay).update(upd);
     }
     else if (b.id === "claim") {
       const mine = Object.entries(queueDocs).find(([id, t]) => t.uid === uid && !t.done);
@@ -201,12 +256,12 @@ document.addEventListener("click", async e => {
     else if (b.dataset.del) { const id = b.dataset.del; await db.collection("queue").doc(id).delete(); await db.collection("tickets").doc(id).delete(); }
     else if (b.id === "upgrade") {
       const mine = Object.entries(queueDocs).find(([id, t]) => t.uid === uid && !t.done);
-      if (mine && confirm("Chuyển sang quẻ trả phí? Bạn sẽ cần chuyển khoản để được xếp ưu tiên.")) {
+      if (mine && confirm("Chuyển lên quẻ trả phí? Bạn vẫn giữ số thứ tự miễn phí cho đến khi chủ trang xác nhận bạn đã chuyển khoản.")) {
         b.disabled = true; b.textContent = "Đang xử lý…";
         try {
           // Dùng transaction: giao diện chỉ đổi sau khi máy chủ xác nhận thành công
           const ref = db.collection("queue").doc(mine[0]);
-          await db.runTransaction(async tx => { tx.update(ref, { mode: "donate" }); });
+          await db.runTransaction(async tx => { tx.update(ref, { wantPaid: true }); });
         } catch (er) {
           b.disabled = false; b.textContent = "⬆ Chuyển lên quẻ trả phí";
           alert("Không chuyển được: " + (er.message || er.code) + "\n(Nếu lỗi permissions: chủ trang cần Publish lại firestore.rules mới nhất.)");
