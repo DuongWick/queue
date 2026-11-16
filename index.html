@@ -51,6 +51,7 @@ footer{margin-top:40px;text-align:center}
 <main id="app">
 <h1>🔮 Đặt lịch xem bói</h1>
 <p class="sub"><i>Không nhận xem cho người dưới 16 tuổi, người theo Thiên chúa giáo.</i></p>
+<div id="inapp" class="card hide" style="border-color:var(--ac2)"></div>
 <div id="status" class="note">Đang kết nối…</div>
 
 <section id="chooseKind" class="hide">
@@ -321,6 +322,37 @@ auth.onAuthStateChanged(async u => {
 });
 db.collection("queue").onSnapshot(s => { queueDocs = {}; s.docs.forEach(d => queueDocs[d.id] = d.data()); render(); },
   e => { $("#status").classList.remove("hide"); $("#status").textContent = "Không đọc được dữ liệu: " + e.message; });
+</script>
+
+<script>
+// Phát hiện trình duyệt trong ứng dụng (Zalo, Messenger, Facebook, TikTok, Instagram...) và gợi ý/ thử mở bằng trình duyệt ngoài
+(function () {
+  const ua = navigator.userAgent || "";
+  const inApp = /Zalo|FBAN|FBAV|FB_IAB|FBIOS|Messenger|Instagram|TikTok|musical_ly|BytedanceWebview|Line\/|\bwv\b/i.test(ua);
+  if (!inApp) return;
+  const isAndroid = /Android/i.test(ua), isIOS = /iPhone|iPad|iPod/i.test(ua);
+  const plain = location.host + location.pathname + location.search;   // bỏ phần #...
+  const fullUrl = "https://" + plain;
+  const chromeUrl = isAndroid
+    ? "intent://" + plain + "#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=" + encodeURIComponent(fullUrl) + ";end"
+    : "googlechromes://" + plain;
+  const firefoxUrl = "firefox://open-url?url=" + encodeURIComponent(fullUrl);
+  const box = document.getElementById("inapp");
+  box.classList.remove("hide");
+  box.innerHTML = '<b>⚠️ Bạn đang mở trong trình duyệt của ứng dụng</b><p class="note" style="margin:6px 0">Để đặt lịch và chuyển khoản ổn định, hãy mở trang bằng trình duyệt trên máy (Chrome, Safari, Firefox...).</p>' +
+    '<div class="row"><a href="' + chromeUrl + '"><button type="button">Mở bằng Chrome</button></a>' +
+    (isAndroid || isIOS ? '<a href="' + firefoxUrl + '"><button type="button" class="ghost">Mở bằng Firefox</button></a>' : '') +
+    '<button type="button" class="ghost" id="copyLink">Sao chép link</button></div>' +
+    '<p class="note" style="margin:8px 0 0">Hoặc bấm dấu <b>⋯</b> (3 chấm) ở góc màn hình → chọn <b>"Mở bằng trình duyệt"</b>.</p>';
+  document.getElementById("copyLink").addEventListener("click", async function () {
+    try { await navigator.clipboard.writeText(fullUrl); this.textContent = "Đã sao chép ✓"; }
+    catch (e) { prompt("Sao chép link này rồi dán vào Chrome/Safari:", fullUrl); }
+  });
+  // Android: tự động thử mở Chrome 1 lần (nếu ứng dụng cho phép)
+  try {
+    if (isAndroid && !sessionStorage.getItem("triedExternal")) { sessionStorage.setItem("triedExternal", "1"); location.href = chromeUrl; }
+  } catch (e) {}
+})();
 </script>
 </body>
 </html>
