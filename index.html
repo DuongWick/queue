@@ -330,8 +330,10 @@ db.collection("queue").onSnapshot(s => { queueDocs = {}; s.docs.forEach(d => que
 // Nếu mở trong ứng dụng nhắn tin (Zalo, Messenger, Facebook, Instagram, TikTok...): chỉ hiện mục yêu cầu mở bằng trình duyệt ngoài
 (function () {
   const ua = navigator.userAgent || "";
-  if (!/Zalo|FBAN|FBAV|FB_IAB|FBIOS|Messenger|Instagram|TikTok|musical_ly|BytedanceWebview|Line\/|Viber|KAKAOTALK|Telegram/i.test(ua)) return;
   const isAndroid = /Android/i.test(ua), isIOS = /iPhone|iPad|iPod/i.test(ua);
+  const knownApp = /Zalo|FBAN|FBAV|FB_IAB|FBIOS|Messenger|Instagram|TikTok|musical_ly|BytedanceWebview|Line\/|Viber|KAKAOTALK|Telegram/i.test(ua);
+  const genericWebview = (isAndroid && /; wv\)/i.test(ua)) || (isIOS && /AppleWebKit/i.test(ua) && !/Safari|CriOS|FxiOS|EdgiOS/i.test(ua));
+  if (!knownApp && !genericWebview) return;
   const plain = location.host + location.pathname + location.search;
   const fullUrl = "https://" + plain;
   const extUrl = isAndroid
@@ -341,6 +343,7 @@ db.collection("queue").onSnapshot(s => { queueDocs = {}; s.docs.forEach(d => que
   const box = document.getElementById("inapp");
   box.classList.remove("hide");
   box.innerHTML = '<p style="font-size:18px;margin:0 0 14px"><b>Hãy mở phần mềm bằng Google hoặc Safari (nếu ở trên iPhone) để được tiếp tục đặt lịch.</b></p>' +
+    '<p style="margin:0 0 14px">Nhấn vào nút <b>Copy link</b> ở phía dưới, sau đó dán link vào mục <b>"Tìm kiếm"</b> ở trên trình duyệt web (Google, Safari,...) để truy cập trang web.</p>' +
     '<div class="row"><a href="' + extUrl + '" target="_blank" rel="noopener"><button type="button">🌐 Mở bằng trình duyệt bên ngoài (Safari, Chrome,...)</button></a>' +
     '<button type="button" class="ghost" id="copyLink">📋 Copy link truy cập</button></div>';
   document.getElementById("copyLink").addEventListener("click", async function () {
